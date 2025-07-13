@@ -1,0 +1,3 @@
+[submodule "src-tauri/src/crowdllama-pb"]
+	path = src-tauri/src/crowdllama-pb
+	url = https://github.com/crowdllama/crowdllama-pb.git
