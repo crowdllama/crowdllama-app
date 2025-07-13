@@ -107,6 +107,12 @@ jobs:
       with:
         bun-version: latest
 
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@stable
+
+    - name: Add Rust target for Intel macOS
+      run: rustup target add x86_64-apple-darwin
+
     - name: Install dependencies
       run: bun install
 
