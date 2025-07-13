@@ -1,12 +1,8 @@
 use std::path::Path;
-use tokio::net::UnixListener;
-use tokio::io::{BufReader, AsyncBufReadExt, AsyncReadExt};
 use prost::Message;
 use std::io::{self, Read};
 
 use crate::crowdllama_pb::*;
-
-pub const SOCKET_PATH: &str = "/tmp/crowdllama.sock";
 
 pub struct SocketListener;
 
@@ -16,6 +12,22 @@ impl SocketListener {
     }
 
     pub async fn start(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        #[cfg(unix)]
+        {
+            self.start_unix().await
+        }
+        
+        #[cfg(windows)]
+        {
+            self.start_windows().await
+        }
+    }
+
+    #[cfg(unix)]
+    async fn start_unix(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        use tokio::net::UnixListener;
+        use tokio::io::AsyncReadExt;
+        
         if Path::new(SOCKET_PATH).exists() {
             std::fs::remove_file(SOCKET_PATH)?;
         }
@@ -23,11 +35,24 @@ impl SocketListener {
         println!("Socket listener started on {}", SOCKET_PATH);
 
         // Run the accept loop directly here to keep the listener alive
-        Self::listen_for_messages(listener).await;
+        Self::listen_for_messages_unix(listener).await;
         Ok(())
     }
 
-    async fn listen_for_messages(listener: UnixListener) {
+    #[cfg(windows)]
+    async fn start_windows(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        println!("⚠️  Unix domain sockets are not supported on Windows");
+        println!("📝 This is a stub implementation for Windows builds");
+        println!("🔧 For production Windows builds, implement TCP or named pipes");
+        
+        // Return success to avoid breaking the build
+        Ok(())
+    }
+
+    #[cfg(unix)]
+    async fn listen_for_messages_unix(listener: tokio::net::UnixListener) {
+        use tokio::io::AsyncReadExt;
+        
         loop {
             match listener.accept().await {
                 Ok((mut stream, _addr)) => {
@@ -140,6 +165,8 @@ impl SocketListener {
         Err("Unknown message type".into())
     }
 }
+
+pub const SOCKET_PATH: &str = "/tmp/crowdllama.sock";
 
 pub async fn start_socket_listener() {
     let mut socket_listener = SocketListener::new();

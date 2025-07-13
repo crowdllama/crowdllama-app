@@ -7,8 +7,10 @@ mod crowdllama_pb_llama {
     include!("../src/crowdllama-pb/rust/llama.v1.rs");
 }
 
-mod ipc;
+pub mod ipc;
 mod sidecar;
+
+
 
 use tauri::tray::TrayIconBuilder;
 use tauri::menu::{Menu, MenuItem};
