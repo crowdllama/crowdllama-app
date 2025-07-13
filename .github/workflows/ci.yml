@@ -315,8 +315,8 @@ jobs:
 
     - name: Copy sidecar binary
       run: |
-        mkdir -p src-tauri/crowdllama
-        copy crowdllama-windows-amd64.exe src-tauri/crowdllama/crowdllama.exe
+        if not exist src-tauri\crowdllama mkdir src-tauri\crowdllama
+        copy crowdllama-windows-amd64.exe src-tauri\crowdllama\crowdllama.exe
         dir src-tauri\crowdllama\
 
     - name: Build Tauri app (Windows)
