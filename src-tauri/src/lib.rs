@@ -1,18 +1,24 @@
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
+mod crowdllama_pb {
+    include!("../src/crowdllama-pb/rust/ipc.v1.rs");
+}
+
+mod crowdllama_pb_llama {
+    include!("../src/crowdllama-pb/rust/llama.v1.rs");
+}
+
+mod ipc;
+mod sidecar;
+
 use tauri::tray::TrayIconBuilder;
 use tauri::menu::{Menu, MenuItem};
 use tauri::path::BaseDirectory;
 use tauri::Manager;
 use std::sync::Arc;
 use std::sync::Mutex;
-use std::process::Command;
 
 const CROWDLLAMA_BIN_PATH: &str = "crowdllama/crowdllama";
 const ICON_PATH: &str = "icons/icon.png";
-// Global state to hold the sidecar process
-struct SidecarState {
-    process_id: Option<u32>,
-}
 
 #[tauri::command]
 fn greet(name: &str) -> String {
@@ -21,28 +27,32 @@ fn greet(name: &str) -> String {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let sidecar_state = Arc::new(Mutex::new(SidecarState { process_id: None }));
+    let sidecar_state = sidecar::new_sidecar_state();
     let sidecar_state_clone = sidecar_state.clone();
 
+    // Create a Tokio runtime for the socket listener
+    let rt = tokio::runtime::Runtime::new().expect("Failed to create Tokio runtime");
+    
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .setup(move |app| {
+            // Start the socket listener in a dedicated background thread
+            std::thread::spawn(|| {
+                let rt = tokio::runtime::Runtime::new().expect("Failed to create Tokio runtime");
+                rt.block_on(async {
+                    ipc::start_socket_listener().await;
+                });
+            });
+
             // Get the path to the crowdllama binary
             let binary_path = app.path().resolve(CROWDLLAMA_BIN_PATH, BaseDirectory::Resource)
                 .expect("Failed to find crowdllama binary");
 
-            // Spawn the sidecar process using std::process::Command
-            let child = Command::new(binary_path)
-                .spawn()
-                .expect("Failed to spawn crowdllama process");
-
-            // Store the process ID for cleanup
+            // Spawn the sidecar process
             {
                 let mut state = sidecar_state.lock().unwrap();
-                state.process_id = Some(child.id());
+                state.spawn_sidecar(binary_path.to_str().unwrap());
             }
-
-            println!("Spawned crowdllama sidecar process with ID: {}", child.id());
 
             // Create menu with "Show", "Connected" and "Exit" items
             let show_item = MenuItem::with_id(app, "show", "Show", true, None::<&str>)?;
@@ -65,11 +75,7 @@ pub fn run() {
                         "exit" => {
                             // Kill the sidecar process before exiting
                             let state = sidecar_state_clone.lock().unwrap();
-                            if let Some(pid) = state.process_id {
-                                // Use kill command to terminate the process
-                                let _ = Command::new("kill").arg(pid.to_string()).output();
-                                println!("Killed crowdllama sidecar process with ID: {}", pid);
-                            }
+                            state.kill_sidecar();
                             app.exit(0);
                         }
                         "connected" => {
