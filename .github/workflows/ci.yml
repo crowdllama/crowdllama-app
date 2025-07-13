@@ -315,7 +315,7 @@ jobs:
 
     - name: Copy sidecar binary
       run: |
-        if not exist src-tauri\crowdllama mkdir src-tauri\crowdllama
+        if (!(Test-Path "src-tauri\crowdllama")) { mkdir src-tauri\crowdllama }
         copy crowdllama-windows-amd64.exe src-tauri\crowdllama\crowdllama.exe
         dir src-tauri\crowdllama\
 
