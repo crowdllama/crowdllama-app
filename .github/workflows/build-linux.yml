@@ -39,7 +39,7 @@ jobs:
       working-directory: src-tauri
       continue-on-error: true
 
-  build:
+  build-linux-amd64:
     runs-on: ubuntu-latest
     needs: test
     
@@ -94,7 +94,71 @@ jobs:
           src-tauri/target/x86_64-unknown-linux-gnu/release/bundle/
         retention-days: 30
 
-  build-windows:
+  build-macos-intel:
+    runs-on: macos-latest
+    needs: test
+    
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Setup Bun
+      uses: oven-sh/setup-bun@v1
+      with:
+        bun-version: latest
+
+    - name: Install dependencies
+      run: bun install
+
+    - name: Build Tauri app (macOS Intel)
+      uses: tauri-apps/tauri-action@v0
+      with:
+        args: --target x86_64-apple-darwin
+        projectPath: .
+        distPath: dist
+        iconPath: src-tauri/icons/icon.png
+
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: crowdllama-app-macos-intel
+        path: |
+          src-tauri/target/x86_64-apple-darwin/release/bundle/
+        retention-days: 30
+
+  build-macos-arm64:
+    runs-on: macos-latest
+    needs: test
+    
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Setup Bun
+      uses: oven-sh/setup-bun@v1
+      with:
+        bun-version: latest
+
+    - name: Install dependencies
+      run: bun install
+
+    - name: Build Tauri app (macOS Apple Silicon)
+      uses: tauri-apps/tauri-action@v0
+      with:
+        args: --target aarch64-apple-darwin
+        projectPath: .
+        distPath: dist
+        iconPath: src-tauri/icons/icon.png
+
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: crowdllama-app-macos-arm64
+        path: |
+          src-tauri/target/aarch64-apple-darwin/release/bundle/
+        retention-days: 30
+
+  build-windows-amd64:
     runs-on: windows-latest
     needs: test
     
