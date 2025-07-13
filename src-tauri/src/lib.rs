@@ -23,7 +23,6 @@ fn greet(name: &str) -> String {
 pub fn run() {
     let sidecar_state = Arc::new(Mutex::new(SidecarState { process_id: None }));
     let sidecar_state_clone = sidecar_state.clone();
-    let sidecar_state_window = sidecar_state.clone();
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
@@ -45,16 +44,24 @@ pub fn run() {
 
             println!("Spawned crowdllama sidecar process with ID: {}", child.id());
 
-            // Create menu with "Connected" and "Exit" items
+            // Create menu with "Show", "Connected" and "Exit" items
+            let show_item = MenuItem::with_id(app, "show", "Show", true, None::<&str>)?;
             let connected_item = MenuItem::with_id(app, "connected", "Connected", true, None::<&str>)?;
             let exit_item = MenuItem::with_id(app, "exit", "Exit", true, None::<&str>)?;
-            let menu = Menu::with_items(app, &[&connected_item, &exit_item])?;
+            let menu = Menu::with_items(app, &[&show_item, &connected_item, &exit_item])?;
             
             let _tray = TrayIconBuilder::new()
                 .icon(tauri::image::Image::from_path(app.path().resolve(ICON_PATH, BaseDirectory::Resource).unwrap()).unwrap())
                 .menu(&menu)
                 .on_menu_event(move |app, event| {
                     match event.id.as_ref() {
+                        "show" => {
+                            // Show the main window
+                            if let Some(window) = app.get_webview_window("main") {
+                                window.show().unwrap();
+                                window.set_focus().unwrap();
+                            }
+                        }
                         "exit" => {
                             // Kill the sidecar process before exiting
                             let state = sidecar_state_clone.lock().unwrap();
@@ -74,14 +81,13 @@ pub fn run() {
                 .build(app)?;
             Ok(())
         })
-        .on_window_event(move |_window, event| {
-            if let tauri::WindowEvent::CloseRequested { .. } = event {
-                // Kill the sidecar process when the window is closed
-                let state = sidecar_state_window.lock().unwrap();
-                if let Some(_pid) = state.process_id {
-                    // Note: We can't access the process plugin here, so we'll rely on the tray exit handler
-                    println!("Window closing, sidecar process will be killed on app exit");
-                }
+        .on_window_event(move |window, event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                // Prevent the default close behavior
+                api.prevent_close();
+                // Hide the window instead of closing it
+                window.hide().unwrap();
+                println!("Window hidden, app continues running in system tray");
             }
         })
         .invoke_handler(tauri::generate_handler![greet])
