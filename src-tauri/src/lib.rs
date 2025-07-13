@@ -1,5 +1,6 @@
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 use tauri::tray::TrayIconBuilder;
+use tauri::menu::{Menu, MenuItem};
 
 #[tauri::command]
 fn greet(name: &str) -> String {
@@ -16,8 +17,25 @@ pub fn run() {
             let rgba = img.to_rgba8();
             let (width, height) = rgba.dimensions();
             
+            // Create menu with "Connected" and "Exit" items
+            let connected_item = MenuItem::with_id(app, "connected", "Connected", true, None::<&str>)?;
+            let exit_item = MenuItem::with_id(app, "exit", "Exit", true, None::<&str>)?;
+            let menu = Menu::with_items(app, &[&connected_item, &exit_item])?;
+            
             let tray = TrayIconBuilder::new()
                 .icon(tauri::image::Image::new_owned(rgba.into_raw(), width, height))
+                .menu(&menu)
+                .on_menu_event(|app, event| {
+                    match event.id.as_ref() {
+                        "exit" => {
+                            app.exit(0);
+                        }
+                        "connected" => {
+                            println!("Connected status clicked");
+                        }
+                        _ => {}
+                    }
+                })
                 .build(app)?;
             Ok(())
         })
