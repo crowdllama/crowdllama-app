@@ -110,6 +110,7 @@ jobs:
           go build -o crowdllama-${{ matrix.goos }}-${{ matrix.goarch }}
         fi
         echo "Built sidecar for ${{ matrix.goos }}-${{ matrix.goarch }}"
+      shell: bash
 
     - name: Upload sidecar artifact
       uses: actions/upload-artifact@v4
