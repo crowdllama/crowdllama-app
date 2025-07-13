@@ -11,8 +11,13 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
+            // Load the PNG file and convert to RGBA
+            let img = image::open("icons/icon.png").unwrap();
+            let rgba = img.to_rgba8();
+            let (width, height) = rgba.dimensions();
+            
             let tray = TrayIconBuilder::new()
-                .icon(app.default_window_icon().unwrap().clone())
+                .icon(tauri::image::Image::new_owned(rgba.into_raw(), width, height))
                 .build(app)?;
             Ok(())
         })
