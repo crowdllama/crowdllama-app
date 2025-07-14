@@ -10,21 +10,170 @@ mod crowdllama_pb_llama {
 pub mod ipc;
 mod sidecar;
 
-
-
 use tauri::tray::TrayIconBuilder;
 use tauri::menu::{Menu, MenuItem};
 use tauri::path::BaseDirectory;
 use tauri::Manager;
 use std::sync::Arc;
 use std::sync::Mutex;
+use serde::{Deserialize, Serialize};
+use prost::Message;
+
+#[cfg(unix)]
+use tokio::net::UnixStream;
+#[cfg(unix)]
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 const CROWDLLAMA_BIN_PATH: &str = "crowdllama/crowdllama";
 const ICON_PATH: &str = "icons/icon.png";
 
+// JSON structures for React-Rust communication
+#[derive(Serialize, Deserialize, Debug)]
+pub struct JsonGenerateRequest {
+    pub model: String,
+    pub prompt: String,
+    pub stream: bool,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct JsonGenerateResponse {
+    pub model: String,
+    pub response: String,
+    pub done: bool,
+    pub worker_id: String,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(tag = "type")]
+pub enum JsonBaseMessage {
+    GenerateRequest { data: JsonGenerateRequest },
+    GenerateResponse { data: JsonGenerateResponse },
+}
+
 #[tauri::command]
 fn greet(name: &str) -> String {
     format!("Hello, {}! You've been greeted from Rust!", name)
+}
+
+#[tauri::command]
+async fn send_ipc_message(message: JsonBaseMessage) -> Result<String, String> {
+    println!("🔄 Received message from React: {:?}", message);
+    
+    // Convert JSON to protobuf
+    let pb_message = match message {
+        JsonBaseMessage::GenerateRequest { data } => {
+            let request = crowdllama_pb_llama::GenerateRequest {
+                model: data.model,
+                prompt: data.prompt,
+                stream: data.stream,
+            };
+            crowdllama_pb_llama::BaseMessage {
+                message: Some(crowdllama_pb_llama::base_message::Message::GenerateRequest(request)),
+            }
+        }
+        JsonBaseMessage::GenerateResponse { data } => {
+            let response = crowdllama_pb_llama::GenerateResponse {
+                model: data.model,
+                response: data.response,
+                done: data.done,
+                worker_id: data.worker_id,
+            };
+            crowdllama_pb_llama::BaseMessage {
+                message: Some(crowdllama_pb_llama::base_message::Message::GenerateResponse(response)),
+            }
+        }
+    };
+    
+    // Encode to protobuf bytes
+    let encoded_message = pb_message.encode_to_vec();
+    println!("📦 Encoded protobuf message: {} bytes", encoded_message.len());
+    
+    // Send to IPC socket (Unix only)
+    #[cfg(unix)]
+    {
+        match send_to_ipc_socket(&encoded_message).await {
+            Ok(_) => {
+                println!("✅ Successfully sent message to IPC socket");
+                Ok("Message sent successfully".to_string())
+            }
+            Err(e) => {
+                println!("❌ Failed to send message to IPC socket: {}", e);
+                Err(format!("Failed to send message: {}", e))
+            }
+        }
+    }
+    
+    #[cfg(windows)]
+    {
+        println!("⚠️ IPC socket not supported on Windows - message logged only");
+        Ok("Message logged (Windows stub)".to_string())
+    }
+}
+
+#[cfg(unix)]
+async fn send_to_ipc_socket(message: &[u8]) -> Result<(), Box<dyn std::error::Error>> {
+    use tokio::time::{timeout, Duration};
+    
+    // Try to connect to the IPC socket
+    let mut stream = timeout(
+        Duration::from_secs(2),
+        UnixStream::connect(ipc::SOCKET_PATH)
+    ).await??;
+    
+    // Write length prefix (4 bytes, big-endian)
+    let length = message.len() as u32;
+    stream.write_all(&length.to_be_bytes()).await?;
+    
+    // Write the message
+    stream.write_all(message).await?;
+    stream.flush().await?;
+    
+    println!("📤 Sent {} bytes to IPC socket", message.len());
+    Ok(())
+}
+
+#[tauri::command]
+async fn simulate_ipc_message() -> Result<JsonBaseMessage, String> {
+    // Simulate receiving a message from IPC and converting to JSON
+    let pb_response = crowdllama_pb_llama::GenerateResponse {
+        model: "simulated-model".to_string(),
+        response: "This is a simulated response from the IPC system".to_string(),
+        done: true,
+        worker_id: "worker-sim-123".to_string(),
+    };
+    
+    let pb_message = crowdllama_pb_llama::BaseMessage {
+        message: Some(crowdllama_pb_llama::base_message::Message::GenerateResponse(pb_response)),
+    };
+    
+    // Convert protobuf to JSON
+    let json_message = match pb_message.message {
+        Some(crowdllama_pb_llama::base_message::Message::GenerateRequest(req)) => {
+            JsonBaseMessage::GenerateRequest {
+                data: JsonGenerateRequest {
+                    model: req.model,
+                    prompt: req.prompt,
+                    stream: req.stream,
+                }
+            }
+        }
+        Some(crowdllama_pb_llama::base_message::Message::GenerateResponse(resp)) => {
+            JsonBaseMessage::GenerateResponse {
+                data: JsonGenerateResponse {
+                    model: resp.model,
+                    response: resp.response,
+                    done: resp.done,
+                    worker_id: resp.worker_id,
+                }
+            }
+        }
+        None => {
+            return Err("Empty message".to_string());
+        }
+    };
+    
+    println!("📨 Simulated IPC message: {:?}", json_message);
+    Ok(json_message)
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -33,7 +182,7 @@ pub fn run() {
     let sidecar_state_clone = sidecar_state.clone();
 
     // Create a Tokio runtime for the socket listener
-    let rt = tokio::runtime::Runtime::new().expect("Failed to create Tokio runtime");
+    let _rt = tokio::runtime::Runtime::new().expect("Failed to create Tokio runtime");
     
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
@@ -98,7 +247,7 @@ pub fn run() {
                 println!("Window hidden, app continues running in system tray");
             }
         })
-        .invoke_handler(tauri::generate_handler![greet])
+        .invoke_handler(tauri::generate_handler![greet, send_ipc_message, simulate_ipc_message])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
